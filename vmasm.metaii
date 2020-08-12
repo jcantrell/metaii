@@ -1,6 +1,6 @@
 	ADR PROGRAM
 OUT1
-  TST '*1'
+	TST '*1'
 	BF L1
 	CL 'GN1'
 	OUT

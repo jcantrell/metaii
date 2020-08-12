@@ -220,27 +220,28 @@ L39
 );
 # End VM code
 # Begin IO globals
-my $df = 'datafile';
+if ($#ARGV+1 == 0)
+{ 
+  print "Usage: metaii codefile vmassembly\n"; 
+  exit;
+}
+my $df = $ARGV[0];
 my $tf = \$text;
+if (scalar @ARGV > 1)
+  { $tf = $ARGV[1]; }
 my $TF;
 open($TF, '<', $tf) or die $!;
 open(DF, '<', $df) or die $!;
 # End IO globals
 
-# Begin area for quick and dirty test code
-#print "TF:\n";
-#while (<$TF>) {
-#  print;
-#}
-# End test code area
-
 # VM global constructs
 # VM consists of Instruction set, a boolean switch,
-# callstack, data stack, input text, output buffer,
+# data stack, input text, output buffer,
 # label table, token buffer
 # Rom array, instruction set, label table
-my $switch;
+my $switch = 0;
 my $token_buffer = "";
+my $output_buffer = "\t";
 my $run = 1;
 my @rom;
 my %opcodes = 
@@ -266,13 +267,23 @@ my %opcodes =
   'END', \&opcodeEND,
 );
 my %labels;
-my $startlabel;
-my $pc;
-my @stack;
-my $output_buffer = "\t";
+my $startlabel = "";
 my $labelcount = 1;
+my $pc = 0;
+my @stack;
+my $debug_flag = 0;
+my %errors =
+(
+  "LABEL_NOT_FOUND" => "Label or rule not found",
+  "OPCODE_NOT_FOUND" => "Encountered nonexistent opcode",
+  "INFINITE_RECURSION" => "Infinite recursion"
+);
+my $error_buffer = "";
+my $oss = "";
+my %debug_call_table;
 
 # Helper methods
+# Skip over whitespace in DF
 sub file_skip_whitespace() {
 	my $b = "";
 	my $ws = 1;
@@ -304,10 +315,6 @@ sub file_skip {
     $matched += $l;
 		$count += read(DF, $buffer, $maxbufferlength);
   }
-  #seek(DF,-$count,SEEK_CUR);
-
-  #print "  SKIPPED:".substr($debug,0,$matched)."\n";
-
   seek(DF,-$count+$matched,1);
   return ($prefix eq "");
 }
@@ -341,11 +348,7 @@ sub file_test_regex {
   my $maxbufferlength = 1000;
   my $count = read(DF, $buffer, $maxbufferlength);
   if ($count == 0) { exit; }
-  #print "  file_test_regex buffer:".substr($buffer,0,10).":\n";
-  #print "  file_test_regex  regex:$regex:\n";
   my $res = ($buffer =~ /$regex/);
-  #print "  file_test_regex res:$res:\n";
-  #seek(DF,-$count,SEEK_CUR);
   seek(DF,-$count,1);
   return $res;
 }
@@ -361,17 +364,8 @@ sub file_skip_regex {
   my $res = "";
   if ($buffer =~ /($regex)/) {
     $res = $1;
-    #print "Regex: $regex\n";
-    #print "Match: $res:".length($res)."\n";
   }
-  #seek(DF,-$count,SEEK_CUR);
   seek(DF,-$count+length($res),1);
-  #print "  SKIPPED:$res\n";
-
-#  my $debug = read(DF, $buffer, 20);
-#  print "File is now:$buffer:\n";
-#  seek(DF,-$debug,1);
-
   return ($res);
 }
 
@@ -381,25 +375,14 @@ sub TST {
 	my $prefix = $_[0];
   $prefix =~ s/^'|'$//g;
   $switch = file_test($prefix);
-  #print "  TST on $prefix\n";
-  #if ($switch) { print "  TST succeeded\n"; }
-  #else { print "  TST failed\n"; }
   if ($switch) { file_skip($prefix); }
-  #print "switch is ".$switch."\n";
 }
 
 sub ID {
   file_skip_whitespace();
   my $regex = "^[a-zA-Z]+[a-zA-Z0-9]*";
-
   my $buffer = "";
-  my $debug = read(DF, $buffer, 20);
-  #print "  File is now:$buffer:\n";
-  #print "  Regex is now:$regex:\n";
-  seek(DF,-$debug,1);
-
   $switch = file_test_regex($regex);
-  #print "ID switch is:".$switch."\n";
   if ($switch) { $token_buffer = file_skip_regex($regex); }
 }
 
@@ -421,18 +404,38 @@ sub CLL {
   push(@stack,"");
   push(@stack,"");
   push(@stack,$pc);
-  # -1 to account for auto-increment after each
-  # instruction
+
+  if ($debug_flag)
+    { print(STDERR "CLL: $_[0]\n"); }
+
+  if (!exists($labels{$_[0]}))
+    { interpreter_error("LABEL_NOT_FOUND", $_[0]); }
+
+  my $ss = join(",",@stack[ map { 2 + 3 * $_ } 0..$#stack/3]).",".$_[0];
+  my $pl = 0;
+  while ($pl < length($oss) && $pl < length($ss) && substr($oss,$pl,1) eq substr($ss,$pl,1))
+    { $pl++; }
+  my $diff = substr($ss,$pl,length($ss)-$pl);
+  $oss = $ss;
+
+  if ($debug_flag) {
+    print STDERR "call table for $diff is ".tell(DF)."\n";
+    if (exists($debug_call_table{$diff})) {
+      print STDERR " table value: ".$debug_call_table{$diff}."\n";
+    }
+  }
+
+  if (exists($debug_call_table{$diff}) and ($debug_call_table{$diff} == tell(DF)))
+    { interpreter_error("INFINITE_RECURSION", $diff); }
+  $debug_call_table{$diff} = tell(DF);
+  
+  # -1 to account for auto-increment after each instruction
   $pc = $labels{$_[0]}-1; 
 }
 
 sub R {
-  #print "R stackdump: ";
-  #foreach(@stack) { print "$_ "; }
   if (scalar(@stack) == 0) { opcodeEND(); }
   $pc = (pop @stack);
-  #$pc--;
-  #print "Returning to ".($pc+1)."\n";
   pop @stack;
   pop @stack;
 }
@@ -457,7 +460,6 @@ sub BF {
 
 sub BE {
   if ($switch) { return; }
-  print "Syntax error!\n";
   $run = 0;
 }
 
@@ -493,64 +495,82 @@ sub LB {
 
 sub OUT {
   print "$output_buffer\n";
-  $output_buffer = "";
-  $output_buffer = "\t"; # 8 spaces
+  $output_buffer = "\t";
 }
 
 # META II pseudo-operations
 sub ADR {
-  #print "ADR called!\n";
+  $startlabel = $_[0];
 }
 
 sub opcodeEND {
   $run = 0;
 }
 
-
 # VM interpreter
+sub interpreter_state_dump {
+  print STDERR "Interpreter dump:\n\n";
+  print STDERR "Switch: $switch\n\n";
+  print STDERR "Token buffer: $token_buffer\n\n";
+  print STDERR "Output buffer: $output_buffer\n\n";
+  print STDERR "Run: $run\n\n";
+  print STDERR "Rom:\n";
+  foreach my $cell(@rom) { 
+    print STDERR "$cell->[0] ";
+    if (defined $cell->[1]) {
+      print STDERR "$cell->[1]\n"; 
+    }
+  }
+  print "\n";
+  print STDERR "Opcodes:\n";
+  foreach my $key (keys %opcodes) { 
+    print STDERR "$key $opcodes{$key}\n"; 
+  }
+  print "\n";
+  print STDERR "Labels:\n";
+  foreach my $key (keys %labels) { 
+    print STDERR "$key $labels{$key}\n"; 
+  }
+  print "\n";
+  print STDERR "Start label: $startlabel\n";
+  print STDERR "Label count: $labelcount\n";
+  print STDERR "PC: $pc\n";
+  print STDERR "Stack:\n";
+  my @ss = @stack[ map { 2 + 3 * $_ } 0..$#stack/3];
+  foreach (@ss) { print STDERR "$_\n"; }
+}
+
+sub interpreter_error {
+  print STDERR "Interpreter error:\n";
+  $run = 0;
+  print STDERR $errors{$_[0]}."\n";
+  print STDERR $_[1]."\n";
+  interpreter_state_dump();
+  exit;
+}
+
 sub interpret {
   # Read code text into VM ROM
   my $address = 0;
   while (<$TF>) {
     my $line = $_;
     chomp($line);
-    if ($line =~ /^(\s*)(\S+)(\s+)?(\S|(\S.*\S))?(\s*)$/) {
-      my $opcode = "";
-      my $arg = "";
-      my $label = "";
-
-      if (defined $4) { $arg = $4; }
-      $opcode = $2;
-      if ($1 eq "") 
-        { ($opcode, $label) = ($label, $opcode); }
-
-      if ($opcode ne "") {
-        # Special case, catch ADR so we know
-        # where to start the interpreter
-        if ($opcode eq "ADR") {
-          $startlabel = $arg;
-        }
-        push(@rom, [$opcode, $arg]);
-        $address++;
-      } else {
-        $labels{$label} = $address;
-      }
+    if (!($line=~ /^(\s*)(\S+)(\s+)?(\S|(\S.*\S))?(\s*)$/))
+      { next; }
+    if ($1 eq "") {
+      $labels{$2} = $address;
+    } elsif ($2 eq "ADR") {
+      $opcodes{$2}->($4);
+    } else {
+      if (!exists($opcodes{$2}))
+      { interpreter_error("OPCODE_NOT_FOUND", $2); }
+      push(@rom, [$2, $4]);
+      $address++;
     }
   }
-#  print "Rom:\n";
-#  for (my $i=0; $i<scalar(@rom);$i++) {
-#    #.join(", ", @rom)."\n";
-#    print "\t$i: ".$rom[$i][0]." ".$rom[$i][1]."\n";
-#  }
-#  print "Labels:\n";
-#  print "\t$_ $labels{$_}\n" for (keys %labels);
-#  print "Start: $startlabel\n";
-#  print "Start Address: ".$labels{$startlabel}."\n";
 
-  
   $pc = $labels{$startlabel};
   while ($run) {
-    #print "Calling: pc: $pc ".$rom[$pc][0]." with :".$rom[$pc][1].":\n";
     $opcodes{$rom[$pc][0]}->($rom[$pc][1]);
     $pc++;
   }
