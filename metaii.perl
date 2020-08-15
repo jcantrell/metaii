@@ -272,13 +272,28 @@ my %opcodes =
   'TB', \&TB,
   'LMI', \&LMI,
   'LMD', \&LMD,
+
+  'CC', \&CC,
+  'RF', \&RF,
+  'TFT', \&TFT,
+  'TFF', \&TFF,
+  'NOT', \&NOT,
+  'SCN', \&SCN,
+  'CGE', \&CGE,
+  'CLE', \&CLE,
+  'CE', \&CE,
+  'LCH', \&LCH,
 );
 my %labels;
 my $startlabel = "";
 my $labelcount = 1;
 my $pc = 0;
 my @stack;
+
+# Extension constructs
 my $margin_counter = 0;
+# Step 10 extension stuff
+my $token_flag = 0;
 # Debug stuff
 my $debug_flag = 0;
 my %errors =
@@ -464,7 +479,7 @@ sub opcodeEND {
   $run = 0;
 }
 
-# Extension opcodes
+# Extension opcodes - Margins
 sub GN {
   if ($stack[$#stack-2] eq "") {
     $stack[$#stack-2] = $labelcount;
@@ -488,6 +503,50 @@ sub LMI {
 
 sub LMD {
   $margin_counter--;
+}
+
+# Token and character extensions
+sub CC {
+  $output_buffer .= chr($_[0]);
+}
+
+sub RF {
+  if (!$switch) { R(); }
+}
+
+sub TFT {
+  $token_flag = 1;
+  $token_buffer = "";
+}
+
+sub TFF {
+  $token_flag = 0;
+}
+
+sub NOT {
+  $switch = 0;
+}
+
+sub SCN {
+  if (!$switch) { return; }
+  my $c = file_skip_regex(".");
+  if ($token_flag) { $token_buffer .= $c; }
+}
+
+sub CGE {
+  $switch = (file_skip_regex(".") >= $_[0]);
+}
+
+sub CLE {
+  $switch = (file_skip_regex(".") <= $_[0]);
+}
+
+sub CE {
+  $switch = (file_skip_regex(".") == $_[0]);
+}
+
+sub LCH {
+  $token_buffer = "".ord(file_skip_regex("."));
 }
 
 # VM interpreter
