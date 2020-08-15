@@ -276,80 +276,35 @@ my %errors =
 (
   "LABEL_NOT_FOUND" => "Label or rule not found",
   "OPCODE_NOT_FOUND" => "Encountered nonexistent opcode",
-  "INFINITE_RECURSION" => "Infinite recursion"
+  "INFINITE_RECURSION" => "Infinite recursion",
+  "DATAFILE_NOT_FOUND" => "Data file not found"
 );
 my $error_buffer = "";
 my $oss = "";
 my %debug_call_table;
 
 # Helper methods
-# Skip over whitespace in DF
-sub file_skip_whitespace() {
-	my $b = "";
-	my $ws = 1;
-  my $c = 0;
-	while ($ws) {
-		$c = read(DF, $b, 1);
-		$ws = ($b =~ /\s/);
-	}
-  if ($c>0) { seek(DF,-$c,1); }
-}
-
 # Skip over string in DF
 sub file_skip {
 	my $prefix = $_[0];
-  my $debug = $prefix;
-  my $buffer = "";
-  my $maxbufferlength = 1000;
-  my $count = 0;
-  my $matched = 0;
-  $count += read(DF, $buffer, $maxbufferlength);
-  my $l = min( length($buffer) , length($prefix) );
-  $matched += $l;
-	while ($prefix ne "" 
-        and substr($buffer,0,$l) eq substr($prefix,0,$l))
-  {
-    $buffer = substr($buffer,$l);
-    $prefix = substr($prefix,$l);
-    $l = min( length($buffer) , length($prefix) );
-    $matched += $l;
-		$count += read(DF, $buffer, $maxbufferlength);
-  }
-  seek(DF,-$count+$matched,1);
-  return ($prefix eq "");
-}
-
-# Does DF begin with the given string?
-sub file_test {
-	my $prefix = $_[0];
-  my $buffer = "";
-  my $maxbufferlength = 1000;
-  my $count = 0;
-  $count += read(DF, $buffer, $maxbufferlength);
-  my $l = min( length($buffer) , length($prefix) );
-	while ($prefix ne "" 
-        and substr($buffer,0,$l) eq substr($prefix,0,$l))
-  {
-    $buffer = substr($buffer,$l);
-    $prefix = substr($prefix,$l);
-    $l = min( length($buffer) , length($prefix) );
-		$count += read(DF, $buffer, $maxbufferlength);
-  }
-  #seek(DF,-$count,SEEK_CUR);
-  seek(DF,-$count,1);
-  return ($prefix eq "");
-}
-
-# Does DF begin with the given regex?
-# TODO: What if match spans string larger than buffer?
-sub file_test_regex {
-	my $regex = $_[0];
   my $buffer = "";
   my $maxbufferlength = 1000;
   my $count = read(DF, $buffer, $maxbufferlength);
-  if ($count == 0) { exit; }
-  my $res = ($buffer =~ /$regex/);
-  seek(DF,-$count,1);
+  my $res = "";
+
+  my $l = min( length($buffer) , length($prefix) );
+	while ($prefix ne "" 
+        and substr($buffer,0,$l) eq substr($prefix,0,$l))
+  {
+    $res .= substr($buffer,0,$l);
+    $buffer = substr($buffer,$l);
+    $prefix = substr($prefix,$l);
+    $l = min( length($buffer) , length($prefix) );
+		$count += read(DF, $buffer, $maxbufferlength);
+  }
+
+  #seek(DF,-$count,SEEK_CUR);
+  seek(DF,-$count+length($res),1);
   return $res;
 }
 
@@ -362,42 +317,35 @@ sub file_skip_regex {
   my $count = read(DF, $buffer, $maxbufferlength);
   if ($count == 0) { exit; }
   my $res = "";
-  if ($buffer =~ /($regex)/) {
-    $res = $1;
-  }
+  $res = $1 if $buffer =~ /($regex)/;
   seek(DF,-$count+length($res),1);
-  return ($res);
+  return $res;
 }
 
 # META II opcodes
 sub TST {
-  file_skip_whitespace();
+  file_skip_regex("^\\s*");
 	my $prefix = $_[0];
   $prefix =~ s/^'|'$//g;
-  $switch = file_test($prefix);
-  if ($switch) { file_skip($prefix); }
+  $switch = (file_skip($prefix) eq $prefix);
 }
 
 sub ID {
-  file_skip_whitespace();
+  file_skip_regex("^\\s*");
   my $regex = "^[a-zA-Z]+[a-zA-Z0-9]*";
-  my $buffer = "";
-  $switch = file_test_regex($regex);
-  if ($switch) { $token_buffer = file_skip_regex($regex); }
+  $switch = (($token_buffer = file_skip_regex($regex)) ne "");
 }
 
 sub NUM {
-  file_skip_whitespace();
+  file_skip_regex("^\\s*");
   my $regex = "^[0-9]+";
-  $switch = file_test_regex($regex);
-  if ($switch) { $token_buffer = file_skip_regex($regex); }
+  $switch = (($token_buffer = file_skip_regex($regex)) ne "");
 }
 
 sub SR {
-  file_skip_whitespace();
+  file_skip_regex("^\\s*");
   my $regex = "^'[^']*'";
-  $switch = file_test_regex($regex);
-  if ($switch) { $token_buffer = file_skip_regex($regex); }
+  $switch = (($token_buffer = file_skip_regex($regex)) ne "");
 }
 
 sub CLL {
