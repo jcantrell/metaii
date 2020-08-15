@@ -263,14 +263,23 @@ my %opcodes =
   'GN2', \&GN2,
   'LB', \&LB,
   'OUT', \&OUT,
+
   'ADR', \&ADR,
   'END', \&opcodeEND,
+
+  'GN', \&GN,
+  'NL', \&NL,
+  'TB', \&TB,
+  'LMI', \&LMI,
+  'LMD', \&LMD,
 );
 my %labels;
 my $startlabel = "";
 my $labelcount = 1;
 my $pc = 0;
 my @stack;
+my $margin_counter = 0;
+# Debug stuff
 my $debug_flag = 0;
 my %errors =
 (
@@ -453,6 +462,32 @@ sub ADR {
 
 sub opcodeEND {
   $run = 0;
+}
+
+# Extension opcodes
+sub GN {
+  if ($stack[$#stack-2] eq "") {
+    $stack[$#stack-2] = $labelcount;
+    $labelcount++;
+  }
+  $output_buffer .= $stack[$#stack-2];
+}
+
+sub NL {
+  print "$output_buffer\n";
+  $output_buffer = ' ' x $margin_counter;
+}
+
+sub TB {
+  $output_buffer .= "\t";
+}
+
+sub LMI {
+  $margin_counter++;
+}
+
+sub LMD {
+  $margin_counter--;
 }
 
 # VM interpreter
