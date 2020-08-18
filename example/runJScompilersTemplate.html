@@ -1,0 +1,74 @@
+<HTML><HEAD><TITLE>Running Your Compiler on a Web Page</TITLE></HEAD>
+<BODY BGCOLOR="#FFFFFF" TEXT="#000000">
+<SCRIPT LANGUAGE="JavaScript" TYPE="text/javascript">
+
+// paste your generated compiler here
+
+function StartJsObjCompile()
+{
+  // assumes "compiler" defined above is a js object
+  // clear the output textbox
+  document.CompileForm.OutputText.value = '' ;
+  // run the compiler on the input textbox
+  compiler.compile(document.CompileForm.InputText.value) ;
+  // set the output even if there is an error
+  document.CompileForm.OutputText.value = compiler.outbuf ;
+  // if there was a compiler error, then report it
+  if (compiler.eflag > 0) window.alert(JsObjCompileErrorReport(compiler)) ;
+  window.confirm('Done.');
+} ;
+
+function JsObjCompileErrorReport (compiler) {
+var i ; var j ; var h ; var ctx ; var error;
+  // compilation error, provide error context
+  error = 'ERROR:\n' +
+          'RULE:' + compiler.erule + '\n' +
+          'TOKEN:' + compiler.token + '\n' ;
+  // provide input scan context
+  i = compiler.einput - 20 ;  if (i < 0) i = 0 ;
+  j = compiler.einput + 20 ;  if (j > compiler.inbuf.length) j = compiler.inbuf.length ;
+  ctx = compiler.inbuf.substring(i,compiler.einput) +
+        '<scan>' +
+        compiler.inbuf.substring(compiler.einput,j) ;
+  error += 'INPUT TEXT:\n' + ctx + '\n' +
+           'INPUT CHAR CODES:\n' + CharCodeString(ctx) + '\n' ;
+  // provide output context
+  i = compiler.outbuf.length - 30 ;  if (i < 0) i = 0 ;
+  j = compiler.outbuf.length ;
+  ctx = compiler.outbuf.substring(i,j) ;
+  error += 'OUTPUT TEXT:\n' + ctx + '\n' +
+           'OUTPUT CHAR CODES:\n' + CharCodeString(ctx) + '\n' ;
+  return error ;
+} ;
+
+function CharCodeString (s) {
+var ccs ; var h ;
+  // ensure nonprinting character codes are visible in error messages
+  ccs = '' ;
+  for (var h = 0 ; h < s.length ; h++)
+    { if (s.charCodeAt(h) <= 32)
+        { ccs += '<' + s.charCodeAt(h) + '>' ; }
+      else
+        { ccs += s.charAt(h) ; } ;
+    } ;
+  return ccs ;
+} ;
+
+function ClearOutput() {document.CompileForm.OutputText.value = "" ; } ;
+
+</SCRIPT>
+<FORM NAME="CompileForm" ACTION="none">
+<INPUT TYPE="button" NAME="CompileButton" VALUE="Compile"
+  onClick="StartJsObjCompile();">
+<INPUT TYPE="button" NAME="OutputClearButton" VALUE="Clear"
+  onClick="ClearOutput();">
+<BR>
+<TEXTAREA NAME="InputText" COLS=80 ROWS=2000>
+Input text shows here.
+</TEXTAREA>
+<TEXTAREA NAME="OutputText" COLS=80 ROWS=2000>
+On compile output appears here.
+</TEXTAREA>
+</FORM>
+</BODY>
+</HTML>
