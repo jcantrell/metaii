@@ -223,15 +223,23 @@ L39
 if ($#ARGV+1 == 0)
 { 
   print "Usage: metaii codefile vmassembly\n"; 
-  exit;
+  exit 1;
 }
 my $df = $ARGV[0];
 my $tf = \$text;
 if (scalar @ARGV > 1)
   { $tf = $ARGV[1]; }
 my $TF;
-open($TF, '<', $tf) or die $!;
-open(DF, '<', $df) or die $!;
+open($TF, '<', $tf) or die "Can't find $tf\n$!";
+#if (!open($TF, '<', $tf)) {
+#  print "Code text file $tf not found\n";
+#  die $!;
+#}
+open(DF, '<', $df) or die "Can't find $df\n$!";
+#if (!open(DF, '<', $df)) {
+#  print "Input file $df not found\n";
+#  die $!;
+#}
 # End IO globals
 
 # VM global constructs
@@ -301,7 +309,9 @@ my %errors =
   "LABEL_NOT_FOUND" => "Label or rule not found",
   "OPCODE_NOT_FOUND" => "Encountered nonexistent opcode",
   "INFINITE_RECURSION" => "Infinite recursion",
-  "DATAFILE_NOT_FOUND" => "Data file not found"
+  "DATAFILE_NOT_FOUND" => "Data file not found",
+  "EMPTY_CODE_FILE" => "Code file is empty",
+  "UNEXPECTED_FILE_END" => "File ended unexpectedly"
 );
 my $error_buffer = "";
 my $oss = "";
@@ -339,13 +349,36 @@ sub file_skip_regex {
   my $buffer = "";
   my $maxbufferlength = 1000;
   my $count = read(DF, $buffer, $maxbufferlength);
-  if ($count == 0) { exit; }
+  if ($count == 0) { 
+    # interpreter_error("UNEXPECTED_FILE_END", $df);
+    # exit 1;
+    exit;
+  }
   my $res = "";
   $res = $1 if $buffer =~ /($regex)/;
   seek(DF,-$count+length($res),1);
+  #print STDERR "skip_regex res:$res pos:".tell(DF)."\n";
+  dbe("skip_regex res:$res pos:".tell(DF)."\n");
   return $res;
 }
 
+sub file_peek_regex {
+  my $r = file_skip_regex($_[0]);
+  seek(DF, -length($r), 1);
+  return $r;
+}
+sub file_peek_char {
+  my $r = '';
+  my $count = read(DF, $r, 1);
+  seek(DF, -length($r), 1);
+  return $r;
+}
+sub file_skip_char {
+  my $r = '';
+  my $count = read(DF, $r, 1);
+  #seek(DF, -length($r), 1);
+  return $r;
+}
 # META II opcodes
 sub TST {
   file_skip_regex("^\\s*");
@@ -377,8 +410,9 @@ sub CLL {
   push(@stack,"");
   push(@stack,$pc);
 
-  if ($debug_flag)
-    { print(STDERR "CLL: $_[0]\n"); }
+  #if ($debug_flag)
+  #  { print(STDERR "CLL: $_[0]\n"); }
+  dbe("CLL: $_[0]\n");
 
   if (!exists($labels{$_[0]}))
     { interpreter_error("LABEL_NOT_FOUND", $_[0]); }
@@ -390,11 +424,15 @@ sub CLL {
   my $diff = substr($ss,$pl,length($ss)-$pl);
   $oss = $ss;
 
-  if ($debug_flag) {
-    print STDERR "call table for $diff is ".tell(DF)."\n";
-    if (exists($debug_call_table{$diff})) {
-      print STDERR " table value: ".$debug_call_table{$diff}."\n";
-    }
+#  if ($debug_flag) {
+#    print STDERR "call table for $diff is ".tell(DF)."\n";
+#    if (exists($debug_call_table{$diff})) {
+#      print STDERR " table value: ".$debug_call_table{$diff}."\n";
+#    }
+#  }
+  dbe("call table for $diff is ".tell(DF)."\n");
+  if (exists($debug_call_table{$diff})) {
+    dbe(" table value: ".$debug_call_table{$diff}."\n");
   }
 
   if (exists($debug_call_table{$diff}) and ($debug_call_table{$diff} == tell(DF)))
@@ -524,29 +562,37 @@ sub TFF {
 }
 
 sub NOT {
-  $switch = 0;
+  $switch = !$switch;
 }
 
 sub SCN {
   if (!$switch) { return; }
-  my $c = file_skip_regex(".");
+  #print STDERR "SCN p:$switch: :$token_flag: ".tell(DF)."\n";
+  dbe("SCN p:$switch: :$token_flag: ".tell(DF)."\n");
+  #my $c = file_skip_regex(".");
+  my $c = file_skip_char();
+  dbe("SCN :$switch: :$token_flag: $c ".tell(DF)."\n");
   if ($token_flag) { $token_buffer .= $c; }
 }
 
 sub CGE {
-  $switch = (file_skip_regex(".") >= $_[0]);
+  dbe("CGE :$_[0]: ".$_[0]." peek:".file_peek_char()."\n");
+  #$switch = (ord(file_peek_regex(".")) >= $_[0]);
+  $switch = (ord(file_peek_char()) >= $_[0]);
 }
 
 sub CLE {
-  $switch = (file_skip_regex(".") <= $_[0]);
+  dbe("CLE $_[0] '".ord($_[0])."'\n");
+  $switch = (ord(file_peek_char()) <= $_[0]);
 }
 
 sub CE {
-  $switch = (file_skip_regex(".") == $_[0]);
+  dbe("CE $_[0] '".ord($_[0])."'\n");
+  $switch = (ord(file_peek_char()) == $_[0]);
 }
 
 sub LCH {
-  $token_buffer = "".ord(file_skip_regex("."));
+  $token_buffer = "".ord(file_skip_char());
 }
 
 # VM interpreter
@@ -582,18 +628,27 @@ sub interpreter_state_dump {
   foreach (@ss) { print STDERR "$_\n"; }
 }
 
+sub dbe {
+  if ($debug_flag) { print STDERR $_[0]; }
+}
+
 sub interpreter_error {
   print STDERR "Interpreter error:\n";
   $run = 0;
   print STDERR $errors{$_[0]}."\n";
   print STDERR $_[1]."\n";
-  interpreter_state_dump();
-  exit;
+  if ($debug_flag) {
+    interpreter_state_dump();
+  }
+  exit 1;
 }
 
 sub interpret {
   # Read code text into VM ROM
   my $address = 0;
+  if (-z $TF) { 
+    interpreter_error("EMPTY_CODE_FILE", $tf);
+  }
   while (<$TF>) {
     my $line = $_;
     chomp($line);
@@ -613,6 +668,12 @@ sub interpret {
 
   $pc = $labels{$startlabel};
   while ($run) {
+#    print STDERR "Running op: $rom[$pc][0] ";
+#    if ( defined($rom[$pc][1]) ) 
+#    {
+#      print STDERR "$rom[$pc][1]";
+#    }
+#    print STDERR "\n";
     $opcodes{$rom[$pc][0]}->($rom[$pc][1]);
     $pc++;
   }
