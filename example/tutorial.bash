@@ -58,4 +58,4 @@ set -xe
 # node      i04a.grammar  c12js.js >t.js
 # node      i03.grammar   t.js     >c02.asm.copy2
 
-#rm -f c01.asm c00.asm c02.asm.copy c03.asm c04.asm c04.asm.copy c05.asm c06.asm c07.asm c07.asm.copy c08.asm c07jf.js c09.asm c10.asm c10.asm.copy c11.asm c12.asm c12.asm.copy c12.js c12js.js c01ajs.js
+rm -f c01.asm c00.asm c02.asm.copy c03.asm c04.asm c04.asm.copy c05.asm c06.asm c07.asm c07.asm.copy c08.asm c07jf.js c09.asm c10.asm c10.asm.copy c11.asm c12.asm c12.asm.copy c12.js c12js.js c01ajs.js
