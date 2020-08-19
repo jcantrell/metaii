@@ -231,15 +231,7 @@ if (scalar @ARGV > 1)
   { $tf = $ARGV[1]; }
 my $TF;
 open($TF, '<', $tf) or die "Can't find $tf\n$!";
-#if (!open($TF, '<', $tf)) {
-#  print "Code text file $tf not found\n";
-#  die $!;
-#}
 open(DF, '<', $df) or die "Can't find $df\n$!";
-#if (!open(DF, '<', $df)) {
-#  print "Input file $df not found\n";
-#  die $!;
-#}
 # End IO globals
 
 # VM global constructs
@@ -304,6 +296,7 @@ my $margin_counter = 0;
 my $token_flag = 0;
 # Debug stuff
 my $debug_flag = 0;
+my $debug_dump = 0;
 my %errors =
 (
   "LABEL_NOT_FOUND" => "Label or rule not found",
@@ -311,11 +304,14 @@ my %errors =
   "INFINITE_RECURSION" => "Infinite recursion",
   "DATAFILE_NOT_FOUND" => "Data file not found",
   "EMPTY_CODE_FILE" => "Code file is empty",
-  "UNEXPECTED_FILE_END" => "File ended unexpectedly"
+  "INVALID_PC_VALUE" => "PC register was invalid",
+  "UNEXPECTED_FILE_END" => "File ended unexpectedly",
+  "RUNTIME_ERROR" => "Unknown error"
 );
 my $error_buffer = "";
 my $oss = "";
 my %debug_call_table;
+my $recursion_detection = 0;
 
 # Helper methods
 # Skip over string in DF
@@ -367,18 +363,21 @@ sub file_peek_regex {
   seek(DF, -length($r), 1);
   return $r;
 }
+
 sub file_peek_char {
   my $r = '';
   my $count = read(DF, $r, 1);
   seek(DF, -length($r), 1);
   return $r;
 }
+
 sub file_skip_char {
   my $r = '';
   my $count = read(DF, $r, 1);
   #seek(DF, -length($r), 1);
   return $r;
 }
+
 # META II opcodes
 sub TST {
   file_skip_regex("^\\s*");
@@ -417,6 +416,7 @@ sub CLL {
   if (!exists($labels{$_[0]}))
     { interpreter_error("LABEL_NOT_FOUND", $_[0]); }
 
+  if ($recursion_detection) {
   my $ss = join(",",@stack[ map { 2 + 3 * $_ } 0..$#stack/3]).",".$_[0];
   my $pl = 0;
   while ($pl < length($oss) && $pl < length($ss) && substr($oss,$pl,1) eq substr($ss,$pl,1))
@@ -438,6 +438,7 @@ sub CLL {
   if (exists($debug_call_table{$diff}) and ($debug_call_table{$diff} == tell(DF)))
     { interpreter_error("INFINITE_RECURSION", $diff); }
   $debug_call_table{$diff} = tell(DF);
+  }
   
   # -1 to account for auto-increment after each instruction
   $pc = $labels{$_[0]}-1; 
@@ -471,6 +472,7 @@ sub BF {
 sub BE {
   if ($switch) { return; }
   $run = 0;
+  interpreter_error("RUNTIME_ERROR", "Position: ".tell(DF));
 }
 
 sub CL {
@@ -637,7 +639,7 @@ sub interpreter_error {
   $run = 0;
   print STDERR $errors{$_[0]}."\n";
   print STDERR $_[1]."\n";
-  if ($debug_flag) {
+  if ($debug_flag and $debug_dump) {
     interpreter_state_dump();
   }
   exit 1;
@@ -655,7 +657,9 @@ sub interpret {
     if (!($line=~ /^(\s*)(\S+)(\s+)?(\S|(\S.*\S))?(\s*)$/))
       { next; }
     if ($1 eq "") {
-      $labels{$2} = $address;
+      if (substr($2, 0, 1) ne ";") {
+        $labels{$2} = $address;
+      }
     } elsif ($2 eq "ADR") {
       $opcodes{$2}->($4);
     } else {
@@ -668,12 +672,8 @@ sub interpret {
 
   $pc = $labels{$startlabel};
   while ($run) {
-#    print STDERR "Running op: $rom[$pc][0] ";
-#    if ( defined($rom[$pc][1]) ) 
-#    {
-#      print STDERR "$rom[$pc][1]";
-#    }
-#    print STDERR "\n";
+    if ($pc >= scalar @rom) 
+      { interpreter_error("INVALID_PC_VALUE", $pc); }
     $opcodes{$rom[$pc][0]}->($rom[$pc][1]);
     $pc++;
   }
